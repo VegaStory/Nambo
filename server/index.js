@@ -410,6 +410,21 @@ app.post('/api/communities/:id/join', auth, (req, res) => {
 })
 
 // ─── Posts ──────────────────────────────────────────────
+app.get('/api/posts/:id', (req, res) => {
+  const row = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Post not found' })
+  const post = mapPost(row)
+  const author = getUserById(row.author_id)
+  const comments = db
+    .prepare('SELECT * FROM comments WHERE post_id = ? ORDER BY created_at ASC')
+    .all(req.params.id)
+    .map(mapComment)
+  const community = row.community_id
+    ? mapCommunity(db.prepare('SELECT * FROM communities WHERE id = ?').get(row.community_id))
+    : null
+  res.json({ post, author, comments, community })
+})
+
 app.post('/api/posts', auth, upload.single('media'), (req, res) => {
   const content = String(req.body.content || '').trim()
   const communityId = req.body.communityId || null

@@ -30,7 +30,15 @@ export function PostCard({ post, compact = false }: PostCardProps) {
     addComment,
   } = useApp()
   const navigate = useNavigate()
-  const author = getUser(post.authorId)
+  const author = getUser(post.authorId) ?? {
+    id: post.authorId,
+    username: 'unknown',
+    displayName: 'Unknown user',
+    bio: '',
+    avatarColor: '#64748b',
+    createdAt: post.createdAt,
+    joinedCommunities: [] as string[],
+  }
   const community = post.communityId ? getCommunity(post.communityId) : null
   const comments = getPostComments(post.id)
   const liked = currentUser ? post.likes.includes(currentUser.id) : false
@@ -43,8 +51,6 @@ export function PostCard({ post, compact = false }: PostCardProps) {
   const [postingComment, setPostingComment] = useState(false)
   const [askCount, setAskCount] = useState(0)
   const replyRef = useRef<HTMLDivElement>(null)
-
-  if (!author) return null
 
   const stop = (e: MouseEvent | FormEvent | KeyboardEvent) => {
     e.stopPropagation()
@@ -108,12 +114,24 @@ export function PostCard({ post, compact = false }: PostCardProps) {
     }
   }
 
+  const openPost = (e?: MouseEvent) => {
+    e?.stopPropagation()
+    if (aiOpen) return
+    navigate(`/post/${encodeURIComponent(post.id)}`)
+  }
+
   return (
     <article
       className="glass rounded-2xl p-4 sm:p-5 hover:border-sky-500/30 transition-colors fade-in cursor-pointer"
-      onClick={() => {
-        if (!aiOpen) navigate(`/post/${post.id}`)
+      onClick={(e) => openPost(e)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          openPost()
+        }
       }}
+      role="link"
+      tabIndex={0}
     >
       <div className="flex gap-3">
         <Link

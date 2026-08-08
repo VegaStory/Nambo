@@ -71,6 +71,11 @@ interface AppContextValue {
     postId: string,
     question?: string,
   ) => Promise<{ reply: string; free: boolean; engine: string } | null>
+  ensurePostInStore: (
+    post: Post,
+    author?: User | null,
+    comments?: Comment[],
+  ) => void
 }
 
 const emptyData: AppData = {
@@ -427,12 +432,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const search = useCallback(async (query: string) => {
     const q = query.trim()
     if (!q) return { posts: [], communities: [], users: [], tags: [] as string[] }
-    return api<{
+    const res = await api<{
       posts: Post[]
       communities: Community[]
       users: User[]
       tags: string[]
     }>(`/api/search?q=${encodeURIComponent(q)}`)
+
+    // Merge search hits into local state so opening a result works
+    setData((prev) => {
+      const postMap = new Map(prev.posts.map((p) => [p.id, p]))
+      for (const p of res.posts) postMap.set(p.id, p)
+      const userMap = new Map(prev.users.map((u) => [u.id, u]))
+      for (const u of res.users) userMap.set(u.id, u)
+      // Also pull authors of result posts if missing (best-effort from users list)
+      const communityMap = new Map(prev.communities.map((c) => [c.id, c]))
+      for (const c of res.communities) communityMap.set(c.id, c)
+      return {
+        ...prev,
+        posts: [...postMap.values()].sort(
+          (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt),
+        ),
+        users: [...userMap.values()],
+        communities: [...communityMap.values()],
+      }
+    })
+
+    return res
   }, [])
 
   const markNotificationsRead = useCallback(async (ids?: string[]) => {
@@ -523,6 +549,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const ensurePostInStore = useCallback(
+    (post: Post, author?: User | null, comments?: Comment[]) => {
+      setData((prev) => {
+        const posts = prev.posts.some((p) => p.id === post.id)
+          ? prev.posts.map((p) => (p.id === post.id ? post : p))
+          : [post, ...prev.posts]
+        let users = prev.users
+        if (author && !prev.users.some((u) => u.id === author.id)) {
+          users = [...prev.users, author]
+        }
+        let nextComments = prev.comments
+        if (comments?.length) {
+          const map = new Map(prev.comments.map((c) => [c.id, c]))
+          for (const c of comments) map.set(c.id, c)
+          nextComments = [...map.values()]
+        }
+        return { ...prev, posts, users, comments: nextComments }
+      })
+    },
+    [],
+  )
+
   const unreadNotifications = useMemo(
     () => notifications.filter((n) => !n.read).length,
     [notifications],
@@ -564,6 +612,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sendMessage,
     mediaUrl,
     askNambo,
+    ensurePostInStore,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
