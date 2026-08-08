@@ -298,22 +298,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const createPost = useCallback(async (input: CreatePostInput) => {
+    const form = new FormData()
+    form.append('content', input.content ?? '')
+    if (input.communityId) form.append('communityId', input.communityId)
+    if (input.mediaFile) form.append('media', input.mediaFile)
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 60_000)
     try {
-      const form = new FormData()
-      form.append('content', input.content)
-      if (input.communityId) form.append('communityId', input.communityId)
-      if (input.mediaFile) form.append('media', input.mediaFile)
       const res = await api<{ post: Post }>('/api/posts', {
         method: 'POST',
         formData: form,
+        signal: controller.signal,
       })
+      if (!res?.post) return null
       setData((prev) => {
         if (prev.posts.some((p) => p.id === res.post.id)) return prev
         return { ...prev, posts: [res.post, ...prev.posts] }
       })
       return res.post
-    } catch {
-      return null
+    } catch (err) {
+      console.error('createPost failed', err)
+      throw err
+    } finally {
+      clearTimeout(timer)
     }
   }, [])
 

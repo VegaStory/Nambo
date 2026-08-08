@@ -8,7 +8,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { Server } from 'socket.io'
 import { fileURLToPath } from 'url'
-import db, { initDb, UPLOADS_DIR } from './db.js'
+import db, { initDb, UPLOADS_DIR, DATA_ROOT, IS_PERSISTENT } from './db.js'
 import { seedIfEmpty } from './seed.js'
 import {
   publicUser,
@@ -425,42 +425,64 @@ app.get('/api/posts/:id', (req, res) => {
   res.json({ post, author, comments, community })
 })
 
-app.post('/api/posts', auth, upload.single('media'), (req, res) => {
-  const content = String(req.body.content || '').trim()
-  const communityId = req.body.communityId || null
-  if (!content && !req.file) {
-    return res.status(400).json({ error: 'Write something or add media' })
-  }
-  if (communityId) {
-    const member = db
-      .prepare('SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?')
-      .get(communityId, req.userId)
-    if (!member) return res.status(403).json({ error: 'Join the community to post' })
-  }
+app.post('/api/posts', auth, (req, res) => {
+  upload.single('media')(req, res, (uploadErr) => {
+    if (uploadErr) {
+      console.error('Upload error', uploadErr)
+      return res.status(400).json({ error: uploadErr.message || 'Upload failed' })
+    }
 
-  const id = newId('p')
-  const now = new Date().toISOString()
-  let mediaPath = null
-  let mediaType = null
-  let mediaName = null
-  if (req.file) {
-    mediaPath = req.file.filename
-    mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image'
-    mediaName = req.file.originalname
-  }
+    try {
+      const content = String(req.body?.content || '').trim()
+      let communityId = req.body?.communityId || null
+      if (communityId === '' || communityId === 'null' || communityId === 'undefined') {
+        communityId = null
+      }
+      if (!content && !req.file) {
+        return res.status(400).json({ error: 'Write something or add media' })
+      }
+      if (communityId) {
+        const member = db
+          .prepare('SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ?')
+          .get(communityId, req.userId)
+        if (!member) return res.status(403).json({ error: 'Join the community to post' })
+      }
 
-  db.prepare(`
-    INSERT INTO posts (id, author_id, community_id, content, media_path, media_type, media_name, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.userId, communityId || null, content, mediaPath, mediaType, mediaName, now)
+      const id = newId('p')
+      const now = new Date().toISOString()
+      let mediaPath = null
+      let mediaType = null
+      let mediaName = null
+      if (req.file) {
+        mediaPath = req.file.filename
+        mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image'
+        mediaName = req.file.originalname
+      }
 
-  const tags = extractTags(content)
-  const insertTag = db.prepare('INSERT INTO post_tags (post_id, tag) VALUES (?, ?)')
-  for (const tag of tags) insertTag.run(id, tag)
+      const insertPost = db.transaction(() => {
+        db.prepare(`
+          INSERT INTO posts (id, author_id, community_id, content, media_path, media_type, media_name, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, req.userId, communityId, content, mediaPath, mediaType, mediaName, now)
 
-  const post = mapPost(db.prepare('SELECT * FROM posts WHERE id = ?').get(id))
-  io.emit('post:new', post)
-  res.status(201).json({ post })
+        const tags = extractTags(content)
+        const insertTag = db.prepare('INSERT INTO post_tags (post_id, tag) VALUES (?, ?)')
+        for (const tag of tags) insertTag.run(id, tag)
+      })
+      insertPost()
+
+      const post = mapPost(db.prepare('SELECT * FROM posts WHERE id = ?').get(id))
+      try {
+        io.emit('post:new', post)
+      } catch (emitErr) {
+        console.error('socket emit failed', emitErr)
+      }
+      return res.status(201).json({ post })
+    } catch (err) {
+      console.error('Create post failed', err)
+      return res.status(500).json({ error: 'Could not create post. Please try again.' })
+    }
+  })
 })
 
 app.post('/api/posts/:id/like', auth, (req, res) => {
@@ -837,7 +859,20 @@ app.get('/api/ai/status', (_req, res) => {
 })
 
 // ─── Health ─────────────────────────────────────────────
-app.get('/api/health', (_req, res) => res.json({ ok: true }))
+app.get('/api/health', (_req, res) => {
+  let userCount = 0
+  try {
+    userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c
+  } catch {
+    /* ignore */
+  }
+  res.json({
+    ok: true,
+    persistent: IS_PERSISTENT,
+    dataRoot: DATA_ROOT,
+    users: userCount,
+  })
+})
 
 // error handler for multer
 app.use((err, _req, res, _next) => {
@@ -868,8 +903,11 @@ server.listen(PORT, () => {
   if (fs.existsSync(clientDist)) {
     console.log('Serving frontend from dist/')
   }
-  if (process.env.DATA_DIR) {
-    console.log(`Data directory: ${process.env.DATA_DIR}`)
+  console.log(`Data root: ${DATA_ROOT} (persistent=${IS_PERSISTENT})`)
+  if (!IS_PERSISTENT) {
+    console.warn(
+      'WARNING: No persistent disk detected. Accounts/posts will be LOST when the server restarts. On Render: add a Disk at /var/data and set DATA_DIR=/var/data',
+    )
   }
 })
 

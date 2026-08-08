@@ -4,8 +4,16 @@ import { fileURLToPath } from 'url'
 import fs from 'fs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-// On Render, set DATA_DIR to a persistent disk path (e.g. /var/data) so logins survive deploys
-const root = process.env.DATA_DIR || __dirname
+
+// Prefer Render persistent disk so accounts survive restarts
+function resolveDataRoot() {
+  if (process.env.DATA_DIR) return process.env.DATA_DIR
+  // Common Render disk mount path
+  if (fs.existsSync('/var/data')) return '/var/data'
+  return __dirname
+}
+
+const root = resolveDataRoot()
 const dataDir = path.join(root, 'data')
 const uploadsDir = path.join(root, 'uploads')
 
@@ -13,16 +21,29 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
 export const UPLOADS_DIR = uploadsDir
+export const DATA_ROOT = root
+export const IS_PERSISTENT = Boolean(
+  process.env.DATA_DIR || (root !== __dirname && root.startsWith('/var/data')),
+)
 
-// Built-in Node SQLite (no native compile / no Python) — works on Render
-const db = new DatabaseSync(path.join(dataDir, 'nambo.db'))
-db.exec('PRAGMA journal_mode = WAL')
-db.exec('PRAGMA foreign_keys = ON')
+// Built-in Node SQLite — no native compile
+const dbPath = path.join(dataDir, 'nambo.db')
+const db = new DatabaseSync(dbPath)
+
+// DELETE is more reliable than WAL on ephemeral / networked disks (avoids lock freezes)
+try {
+  db.exec('PRAGMA journal_mode = DELETE')
+  db.exec('PRAGMA synchronous = NORMAL')
+  db.exec('PRAGMA foreign_keys = ON')
+  db.exec('PRAGMA busy_timeout = 5000')
+} catch (err) {
+  console.error('PRAGMA setup failed', err)
+}
 
 /** better-sqlite3-compatible transaction helper */
 db.transaction = function transaction(fn) {
   return (...args) => {
-    db.exec('BEGIN')
+    db.exec('BEGIN IMMEDIATE')
     try {
       const result = fn(...args)
       db.exec('COMMIT')

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { CreatePost } from '../components/CreatePost'
 import { PostCard } from '../components/PostCard'
+import { PersistenceBanner } from '../components/PersistenceBanner'
 import { Link } from 'react-router-dom'
 
 type Tab = 'for-you' | 'following' | 'latest'
@@ -35,6 +36,7 @@ export function Home() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
+      <PersistenceBanner />
       <div>
         <h1 className="text-xl font-bold text-white sm:text-2xl">Home</h1>
         <p className="mt-1 text-sm text-slate-400">

@@ -54,6 +54,7 @@ export function CreatePost({
   }
 
   const submit = async () => {
+    if (busy) return
     if (!content.trim() && !file) {
       setError('Write something or add media')
       return
@@ -71,9 +72,17 @@ export function CreatePost({
         setContent('')
         clearMedia()
         onPosted?.()
+      } else {
+        setError('Could not create post. Try again.')
       }
-    } catch {
-      setError('Could not create post')
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.name === 'AbortError'
+          ? 'Post timed out. Try a smaller image/video or try again.'
+          : err instanceof Error && err.message
+            ? err.message
+            : 'Could not create post. Try again.'
+      setError(msg)
     } finally {
       setBusy(false)
     }
