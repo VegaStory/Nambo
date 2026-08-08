@@ -57,9 +57,8 @@ export function PostCard({ post, compact = false }: PostCardProps) {
   const comments = getPostComments(post.id)
   const liked = currentUser ? post.likes.includes(currentUser.id) : false
   // Strict string compare — ids can differ by type after JSON
-  const isOwner = Boolean(
-    currentUser && String(currentUser.id) === String(post.authorId),
-  )
+  // Any signed-in user can edit/delete any post (open community)
+  const canModerate = Boolean(currentUser)
 
   const [aiOpen, setAiOpen] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
@@ -260,7 +259,7 @@ export function PostCard({ post, compact = false }: PostCardProps) {
                 </>
               )}
             </div>
-            {isOwner && !editing && (
+            {canModerate && !editing && (
               <div
                 className="flex shrink-0 items-center gap-1"
                 onClick={(e) => e.stopPropagation()}
@@ -436,7 +435,7 @@ export function PostCard({ post, compact = false }: PostCardProps) {
               <Sparkles className="h-4 w-4" />
               Ask Nambo
             </button>
-            {isOwner && !editing && (
+            {canModerate && !editing && (
               <>
                 <button
                   type="button"

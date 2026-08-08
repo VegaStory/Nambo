@@ -485,14 +485,11 @@ app.post('/api/posts', auth, (req, res) => {
   })
 })
 
-// Edit own post (text + tags; keeps existing media)
+// Edit any post (any signed-in user — open community model)
 app.patch('/api/posts/:id', auth, (req, res) => {
   try {
     const row = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)
     if (!row) return res.status(404).json({ error: 'Post not found' })
-    if (row.author_id !== req.userId) {
-      return res.status(403).json({ error: 'You can only edit your own posts' })
-    }
 
     const content = String(req.body?.content ?? '').trim()
     if (!content && !row.media_path) {
@@ -521,14 +518,11 @@ app.patch('/api/posts/:id', auth, (req, res) => {
   }
 })
 
-// Delete own post
+// Delete any post (any signed-in user — open community model)
 app.delete('/api/posts/:id', auth, (req, res) => {
   try {
     const row = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)
     if (!row) return res.status(404).json({ error: 'Post not found' })
-    if (row.author_id !== req.userId) {
-      return res.status(403).json({ error: 'You can only delete your own posts' })
-    }
 
     // Remove media file if present
     if (row.media_path) {
@@ -540,7 +534,6 @@ app.delete('/api/posts/:id', auth, (req, res) => {
       }
     }
 
-    // Cascades handle tags/likes/comments via FK where set; delete post last
     db.prepare('DELETE FROM post_likes WHERE post_id = ?').run(row.id)
     db.prepare('DELETE FROM post_tags WHERE post_id = ?').run(row.id)
     db.prepare('DELETE FROM comment_likes WHERE comment_id IN (SELECT id FROM comments WHERE post_id = ?)').run(
@@ -635,6 +628,64 @@ app.post('/api/posts/:id/comments', auth, (req, res) => {
 
   io.emit('comment:new', comment)
   res.status(201).json({ comment })
+})
+
+// Edit any comment (any signed-in user)
+app.patch('/api/comments/:id', auth, (req, res) => {
+  try {
+    const row = db.prepare('SELECT * FROM comments WHERE id = ?').get(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Comment not found' })
+    const content = String(req.body?.content ?? '').trim()
+    if (!content) return res.status(400).json({ error: 'Comment cannot be empty' })
+    db.prepare('UPDATE comments SET content = ? WHERE id = ?').run(content, row.id)
+    const comment = mapComment(db.prepare('SELECT * FROM comments WHERE id = ?').get(row.id))
+    try {
+      io.emit('comment:updated', comment)
+    } catch {
+      /* ignore */
+    }
+    res.json({ comment })
+  } catch (err) {
+    console.error('Edit comment failed', err)
+    res.status(500).json({ error: 'Could not update comment' })
+  }
+})
+
+// Delete any comment (any signed-in user)
+app.delete('/api/comments/:id', auth, (req, res) => {
+  try {
+    const row = db.prepare('SELECT * FROM comments WHERE id = ?').get(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Comment not found' })
+
+    // Collect this comment + nested replies
+    const all = db.prepare('SELECT id, parent_id FROM comments WHERE post_id = ?').all(row.post_id)
+    const toDelete = new Set([row.id])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const c of all) {
+        if (c.parent_id && toDelete.has(c.parent_id) && !toDelete.has(c.id)) {
+          toDelete.add(c.id)
+          changed = true
+        }
+      }
+    }
+
+    for (const id of toDelete) {
+      db.prepare('DELETE FROM comment_likes WHERE comment_id = ?').run(id)
+      db.prepare('DELETE FROM comments WHERE id = ?').run(id)
+    }
+
+    try {
+      io.emit('comment:deleted', { id: row.id, ids: [...toDelete], postId: row.post_id })
+    } catch {
+      /* ignore */
+    }
+    res.json({ ok: true, id: row.id, ids: [...toDelete] })
+  } catch (err) {
+    console.error('Delete comment failed', err)
+    res.status(500).json({ error: 'Could not delete comment' })
+  }
 })
 
 app.post('/api/comments/:id/like', auth, (req, res) => {

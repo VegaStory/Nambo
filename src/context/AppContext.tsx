@@ -46,6 +46,8 @@ interface AppContextValue {
   deletePost: (postId: string) => Promise<boolean>
   toggleLikePost: (postId: string) => Promise<void>
   addComment: (postId: string, content: string, parentId?: string | null) => Promise<Comment | null>
+  updateComment: (commentId: string, content: string) => Promise<Comment | null>
+  deleteComment: (commentId: string) => Promise<boolean>
   toggleLikeComment: (commentId: string) => Promise<void>
   createCommunity: (name: string, description: string, topic: string) => Promise<Community | null>
   toggleJoinCommunity: (communityId: string) => Promise<void>
@@ -233,6 +235,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     })
 
+    socket.on('comment:updated', (comment: Comment) => {
+      setData((prev) => ({
+        ...prev,
+        comments: prev.comments.map((c) => (c.id === comment.id ? comment : c)),
+      }))
+    })
+
+    socket.on('comment:deleted', (payload: { id: string; ids?: string[] }) => {
+      const ids = new Set(payload.ids?.length ? payload.ids : [payload.id])
+      setData((prev) => ({
+        ...prev,
+        comments: prev.comments.filter((c) => !ids.has(c.id)),
+      }))
+    })
+
     socket.on('message:new', (message: Message) => {
       setConversations((prev) => {
         const idx = prev.findIndex((c) => c.id === message.conversationId)
@@ -406,6 +423,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [],
   )
+
+  const updateComment = useCallback(async (commentId: string, content: string) => {
+    try {
+      const res = await api<{ comment: Comment }>(`/api/comments/${commentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      })
+      if (!res?.comment) return null
+      setData((prev) => ({
+        ...prev,
+        comments: prev.comments.map((c) => (c.id === commentId ? res.comment : c)),
+      }))
+      return res.comment
+    } catch (err) {
+      console.error('updateComment failed', err)
+      return null
+    }
+  }, [])
+
+  const deleteComment = useCallback(async (commentId: string) => {
+    try {
+      const res = await api<{ ok: boolean; ids?: string[] }>(`/api/comments/${commentId}`, {
+        method: 'DELETE',
+      })
+      const ids = new Set(res.ids?.length ? res.ids : [commentId])
+      setData((prev) => ({
+        ...prev,
+        comments: prev.comments.filter((c) => !ids.has(c.id)),
+      }))
+      return true
+    } catch (err) {
+      console.error('deleteComment failed', err)
+      return false
+    }
+  }, [])
 
   const toggleLikeComment = useCallback(async (commentId: string) => {
     try {
@@ -658,6 +710,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deletePost,
     toggleLikePost,
     addComment,
+    updateComment,
+    deleteComment,
     toggleLikeComment,
     createCommunity,
     toggleJoinCommunity,
