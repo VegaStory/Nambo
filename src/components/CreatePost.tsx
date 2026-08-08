@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
-import { ImagePlus, Video, X, Send, Loader2 } from 'lucide-react'
+import { ImagePlus, Video, X, Send, Loader2, Crop } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { Avatar } from './Avatar'
+import { ImageEditor } from './ImageEditor'
 
 interface CreatePostProps {
   defaultCommunityId?: string | null
@@ -19,6 +20,7 @@ export function CreatePost({
   const [communityId, setCommunityId] = useState<string | null>(defaultCommunityId)
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
+  const [showEditor, setShowEditor] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const imageRef = useRef<HTMLInputElement>(null)
@@ -29,6 +31,13 @@ export function CreatePost({
   const joined = data.communities.filter((c) =>
     currentUser.joinedCommunities.includes(c.id),
   )
+
+  const setMedia = (f: File, openCrop: boolean) => {
+    if (preview) URL.revokeObjectURL(preview)
+    setFile(f)
+    setPreview(URL.createObjectURL(f))
+    setShowEditor(openCrop && f.type.startsWith('image/'))
+  }
 
   const pickFile = (f: File | null) => {
     if (!f) return
@@ -43,20 +52,25 @@ export function CreatePost({
       return
     }
     setError('')
-    setFile(f)
-    setPreview(URL.createObjectURL(f))
+    // Images open crop editor first; videos go straight to preview
+    setMedia(f, isImage)
   }
 
   const clearMedia = () => {
     if (preview) URL.revokeObjectURL(preview)
     setFile(null)
     setPreview(null)
+    setShowEditor(false)
   }
 
   const submit = async () => {
     if (busy) return
     if (!content.trim() && !file) {
       setError('Write something or add media')
+      return
+    }
+    if (showEditor) {
+      setError('Apply or cancel the crop before posting')
       return
     }
     setBusy(true)
@@ -105,20 +119,53 @@ export function CreatePost({
             className="w-full resize-none bg-transparent text-[15px] text-slate-100 placeholder:text-slate-500 outline-none"
           />
 
-          {preview && (
+          {showEditor && file?.type.startsWith('image/') && (
+            <ImageEditor
+              file={file}
+              onApply={(cropped) => {
+                setMedia(cropped, false)
+                setShowEditor(false)
+              }}
+              onCancel={() => setShowEditor(false)}
+              onReplace={() => imageRef.current?.click()}
+            />
+          )}
+
+          {preview && !showEditor && (
             <div className="relative mt-2 overflow-hidden rounded-xl border border-slate-700">
               {file?.type.startsWith('video/') ? (
                 <video src={preview} controls className="max-h-64 w-full bg-black" />
               ) : (
                 <img src={preview} alt="Preview" className="max-h-64 w-full object-cover" />
               )}
-              <button
-                type="button"
-                onClick={clearMedia}
-                className="absolute right-2 top-2 rounded-full bg-black/70 p-1.5 text-white hover:bg-black"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="absolute right-2 top-2 flex gap-1.5">
+                {file?.type.startsWith('image/') && (
+                  <button
+                    type="button"
+                    onClick={() => setShowEditor(true)}
+                    className="inline-flex items-center gap-1 rounded-full bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black"
+                    title="Edit / crop photo"
+                  >
+                    <Crop className="h-3.5 w-3.5" />
+                    Edit / crop
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => imageRef.current?.click()}
+                  className="rounded-full bg-black/75 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-black"
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  onClick={clearMedia}
+                  className="rounded-full bg-black/75 p-1.5 text-white hover:bg-black"
+                  title="Remove"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -143,14 +190,20 @@ export function CreatePost({
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                pickFile(e.target.files?.[0] ?? null)
+                e.target.value = ''
+              }}
             />
             <input
               ref={videoRef}
               type="file"
               accept="video/*"
               className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                pickFile(e.target.files?.[0] ?? null)
+                e.target.value = ''
+              }}
             />
 
             <button

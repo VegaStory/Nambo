@@ -1,11 +1,10 @@
 /**
- * Free built-in "Nambo" conversation helper.
- * No API key required — runs entirely on the server so every visitor can use it.
- * If XAI_API_KEY is set later, smarter Grok replies can be added without changing the UI.
+ * Free built-in "Nambo" helper — short replies, no API key.
+ * Always returns something useful for follow-up questions.
  */
 
 const STOP = new Set(
-  `a an the and or but if in on at to for of is are was were be been being
+  `a an the and or or but if in on at to for of is are was were be been being
    this that these those it its with from as by about into over after before
    i you we they he she them my your our their me us do does did will would
    can could should just so not no yes what when where who how why which
@@ -43,14 +42,81 @@ function keywords(text, tags = [], limit = 5) {
     .map(([w]) => w)
 }
 
-function pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
-
 function snippet(text, max = 120) {
   const t = String(text || '').replace(/\s+/g, ' ').trim()
   if (t.length <= max) return t
   return `${t.slice(0, max - 1).trim()}…`
+}
+
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)]
+}
+
+/**
+ * Brief Q&A style reply when the user typed a question.
+ */
+function briefAnswer({ content, tags, author, community, question }) {
+  const keys = keywords(content, tags)
+  const topic = keys[0] || (community ? community : 'this topic')
+  const keyList = keys.length ? keys.slice(0, 3).join(', ') : topic
+  const q = question.trim()
+  const lower = q.toLowerCase()
+  const core = snippet(content, 160)
+
+  // Always produce a short, direct answer block
+  let head = ''
+  if (/summar|tldr|mean|about|explain|what is|what’s|whats/.test(lower)) {
+    head = `${author} is mainly talking about ${topic}. In short: “${core}”`
+  } else if (/why|reason|because/.test(lower)) {
+    head = `Likely angle: the post pushes a point on ${topic}. The “why” is in this line: “${snippet(content, 100)}”. A simple take is that ${author} wants people to notice ${keyList}.`
+  } else if (/how|start|reply|comment|respond/.test(lower)) {
+    head = `Quick way to reply: (1) one-line stance, (2) one example, (3) one question back to ${author}. That works better than a long rant.`
+  } else if (/agree|support|right|correct/.test(lower)) {
+    head = `If you agree, say why in one concrete sentence tied to ${topic} — not just “this!” Specifics get replies.`
+  } else if (/disagree|wrong|against|counter|no/.test(lower)) {
+    head = `Fair counter: even if ${author} is partly right on ${topic}, ask what gets left out (cost, who is hurt, what evidence). Keep it one short challenge + one question.`
+  } else if (/who|when|where/.test(lower)) {
+    head = `From the post alone: author is ${author}${community ? ` in c/${community}` : ''}. Timing isn’t fully specified — the post itself says: “${core}”`
+  } else if (/search|google|look up|find|source|link|fact/.test(lower)) {
+    head = `I can’t open the live web here, but a useful “search style” checklist for ${topic}: (1) who wrote this, (2) date, (3) one primary source, (4) one opposing view. Keywords to search: ${keyList}.`
+  } else if (/funny|joke|meme|lol/.test(lower)) {
+    head = `Light take: ${author} brought ${topic} into the chat. If it’s a joke post, the best reply is a one-liner — not a debate essay.`
+  } else {
+    head = `On “${snippet(q, 80)}”: connected to this post, the core is ${topic}. ${author} wrote: “${core}”. Short answer: focus on that claim and say if you buy it, with one reason.`
+  }
+
+  const tip = pick([
+    `Tip: add one personal example in the comments.`,
+    `Tip: ask ${author} one clear follow-up.`,
+    `Tip: quote one phrase from the post when you reply.`,
+  ])
+
+  return [
+    head,
+    '',
+    tip,
+    '',
+    '— Nambo (brief free helper)',
+  ].join('\n')
+}
+
+/**
+ * Opening spark when panel first opens (no user question).
+ */
+function openSpark({ content, tags, author, community }) {
+  const keys = keywords(content, tags)
+  const topic = keys[0] || (community ? community : 'this')
+  const core = snippet(content, 110)
+
+  return [
+    `Quick read: this post is about ${topic}.`,
+    ``,
+    `“${core}”`,
+    ``,
+    `Try asking: “summarize this”, “why does this matter?”, or “how should I reply?”`,
+    ``,
+    `— Nambo (brief free helper)`,
+  ].join('\n')
 }
 
 /**
@@ -62,144 +128,15 @@ export function sparkConversation(input) {
   const author = input.authorName || 'the author'
   const community = input.communityName
   const q = (input.userQuestion || '').trim()
-  const keys = keywords(content, tags)
-  const topic = keys[0] || (community ? community.toLowerCase() : 'this')
-  const keyList =
-    keys.length > 0
-      ? keys.slice(0, 3).map((k) => `#${k}`).join(', ')
-      : 'the main idea'
 
-  const isQuestion = /\?/.test(content)
-  const isHotTake = /\b(hot take|unpopular|disagree|wrong|always|never)\b/i.test(
-    content,
-  )
-  const isNews = /\b(breaking|report|bill|market|announced|today)\b/i.test(
-    content,
-  ) || tags.some((t) => /news|politics|local/i.test(t))
-  const hasMediaHint = /\b(photo|video|image|clip|pic)\b/i.test(content)
-
-  let mode = 'general'
-  if (q) mode = 'answer'
-  else if (isNews) mode = 'news'
-  else if (isHotTake) mode = 'debate'
-  else if (isQuestion) mode = 'question'
-  else if (hasMediaHint) mode = 'media'
-
-  const openers = {
-    general: [
-      `Here's a spark for this thread — Nambo (nobody / nothing) stepping in so someone can become somebody in the replies.`,
-      `Conversation starter from Nambo — free for everyone, no account key needed.`,
-      `Nambo read this post and left a few hooks to get people talking:`,
-    ],
-    news: [
-      `News desk mode — Nambo pulled angles people often skip on updates like this:`,
-      `When a post reads like news, the comments get better with sources, impact, and “what next?”`,
-    ],
-    debate: [
-      `Hot-take radar on. Nambo is here to steelman both sides so the thread stays sharp, not just loud:`,
-      `Disagreement is healthy when it's specific. Try these:`,
-    ],
-    question: [
-      `The post already asks something — Nambo is amplifying it so more people jump in:`,
-      `Questions deserve answers. Nambo's take on how to reply:`,
-    ],
-    media: [
-      `There's a visual vibe here — Nambo is asking what people actually notice:`,
-    ],
-    answer: [
-      `You asked Nambo about this post. Here's a free, built-in take to keep the conversation moving:`,
-    ],
-  }
-
-  const questionsByMode = {
-    general: [
-      `What part of ${author}'s point about “${topic}” do you agree with most — and what would you change?`,
-      `If you had to explain this post in one sentence to a friend, what would you say?`,
-      `Who is most affected by this, and who might see it differently?`,
-      `What's a real example (from your life or the news) that backs or challenges this?`,
-    ],
-    news: [
-      `What source would you want to see linked here before sharing this further?`,
-      `Who benefits if this story is true — and who should be nervous?`,
-      `What's the next development you'd watch for in the next week?`,
-      `How does this hit people outside the headline's main group?`,
-    ],
-    debate: [
-      `Steelman the opposite view: what's the strongest argument against this take?`,
-      `Where do you draw the line — when does “${topic}” go too far either way?`,
-      `Is this a values disagreement or a facts disagreement?`,
-      `What evidence would make you change your mind?`,
-    ],
-    question: [
-      `What's your direct answer to ${author}'s question, in one short paragraph?`,
-      `Has anyone here tried this already? What actually happened?`,
-      `What detail is missing before you can answer well?`,
-    ],
-    media: [
-      `What stands out first in the media — mood, detail, or context?`,
-      `If this photo/video had a caption battle, what's your one-liner?`,
-      `Does the media support the text, or tell a different story?`,
-    ],
-    answer: [
-      `Does that answer match how you read the original post?`,
-      `What would you add that Nambo might have missed?`,
-    ],
-  }
-
-  const takeTemplates = [
-    `Short take: the heart of this post is about **${topic}**. The open question isn't just “agree/disagree” — it's *who this changes something for*.`,
-    `Nambo's read: “${snippet(content, 90)}” lands as a prompt about **${topic}**. Threads get good when people bring one concrete example.`,
-    `Nobody has to be an expert here (that's kind of the point of Nambo). Start with what you know about ${keyList}.`,
-  ]
-
-  const opener = pick(openers[mode] || openers.general)
-  const qs = questionsByMode[mode] || questionsByMode.general
-  const chosenQs = []
-  const pool = [...qs]
-  while (chosenQs.length < 3 && pool.length) {
-    const i = Math.floor(Math.random() * pool.length)
-    chosenQs.push(pool.splice(i, 1)[0])
-  }
-
-  let answerBlock = ''
-  if (q) {
-    const lower = q.toLowerCase()
-    if (/summar|tldr|mean|about/.test(lower)) {
-      answerBlock = `**Quick summary:** ${author} is talking about ${topic}${
-        community ? ` in c/${community}` : ''
-      }. Core line: “${snippet(content, 140)}”`
-    } else if (/disagree|wrong|counter|against/.test(lower)) {
-      answerBlock = `**Counter-angle:** Even if ${author} is right about ${topic}, a fair pushback is: context, tradeoffs, and who pays the cost. Ask the thread for the strongest opposing case.`
-    } else if (/agree|why|support/.test(lower)) {
-      answerBlock = `**Supporting angle:** If you back this, name one concrete reason tied to ${keyList} — vague “this!” comments die fast; specific ones start real talk.`
-    } else if (/how|start|reply|comment/.test(lower)) {
-      answerBlock = `**How to jump in:** Reply with (1) your stance in one line, (2) one example, (3) one question for ${author}. That pattern almost always grows a thread.`
-    } else {
-      answerBlock = `**On your question** (“${snippet(q, 100)}”): connect it back to **${topic}** in the post. The most useful replies will answer *you* and still invite the next person.`
-    }
-  }
-
-  const take = pick(takeTemplates)
-
-  const lines = [
-    opener,
-    '',
-    take,
-    answerBlock ? `\n${answerBlock}\n` : '',
-    '**Try asking the thread:**',
-    ...chosenQs.map((line, i) => `${i + 1}. ${line}`),
-    '',
-    community
-      ? `_Community note: this is in **c/${community}** — keep it on-topic for people who joined for that space._`
-      : `_Status post: personal takes welcome — be kind enough that strangers still want to reply._`,
-    '',
-    '— **Nambo** · free conversation helper · “nobody / nothing,” until the thread becomes something',
-  ]
+  const reply = q
+    ? briefAnswer({ content, tags, author, community, question: q })
+    : openSpark({ content, tags, author, community })
 
   return {
-    reply: lines.filter((l) => l !== undefined).join('\n'),
-    mode,
-    keywords: keys,
+    reply,
+    mode: q ? 'answer' : 'spark',
+    keywords: keywords(content, tags),
     free: true,
     engine: 'nambo-local',
   }

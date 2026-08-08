@@ -56,7 +56,10 @@ export function PostCard({ post, compact = false }: PostCardProps) {
   const community = post.communityId ? getCommunity(post.communityId) : null
   const comments = getPostComments(post.id)
   const liked = currentUser ? post.likes.includes(currentUser.id) : false
-  const isOwner = currentUser?.id === post.authorId
+  // Strict string compare — ids can differ by type after JSON
+  const isOwner = Boolean(
+    currentUser && String(currentUser.id) === String(post.authorId),
+  )
 
   const [aiOpen, setAiOpen] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
@@ -79,17 +82,17 @@ export function PostCard({ post, compact = false }: PostCardProps) {
   }
 
   const runAsk = async (question?: string) => {
+    const q = (question ?? '').trim()
     setAiBusy(true)
     setAiError('')
     try {
-      const res = await askNambo(post.id, question?.trim() || '')
+      const res = await askNambo(post.id, q)
       if (!res?.reply) {
         setAiError('Nambo could not reply. Check your connection and try again.')
         return
       }
       setAiReply(formatNamboReply(res.reply))
       setAskCount((n) => n + 1)
-      // Scroll answer into view after paint
       requestAnimationFrame(() => {
         replyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       })
@@ -105,16 +108,19 @@ export function PostCard({ post, compact = false }: PostCardProps) {
     e.preventDefault()
     setAiOpen(true)
     setAiError('')
-    // Always fetch a fresh spark when opening, or if empty
-    if (!aiReply) {
-      await runAsk()
-    }
+    setAiQuestion('')
+    // Fresh opener every time the panel opens
+    await runAsk('')
   }
 
   const onAskSubmit = async (e: FormEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (aiBusy) return
+    if (!aiQuestion.trim()) {
+      setAiError('Type a question first, then press Ask.')
+      return
+    }
     await runAsk(aiQuestion)
   }
 
@@ -218,39 +224,69 @@ export function PostCard({ post, compact = false }: PostCardProps) {
         </Link>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <Link
-              to={`/u/${author.username}`}
-              onClick={(e) => e.stopPropagation()}
-              className="font-semibold text-slate-100 hover:underline"
-            >
-              {author.displayName}
-            </Link>
-            <span className="text-slate-500">@{author.username}</span>
-            <span className="text-slate-600">·</span>
-            <span className="text-slate-500">{timeAgo(post.createdAt)}</span>
-            {community && (
-              <>
-                <span className="text-slate-600">·</span>
-                <Link
-                  to={`/c/${community.slug}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-                  style={{
-                    background: `${community.color}22`,
-                    color: community.color,
-                    border: `1px solid ${community.color}44`,
-                  }}
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <Link
+                to={`/u/${author.username}`}
+                onClick={(e) => e.stopPropagation()}
+                className="font-semibold text-slate-100 hover:underline"
+              >
+                {author.displayName}
+              </Link>
+              <span className="text-slate-500">@{author.username}</span>
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-500">{timeAgo(post.createdAt)}</span>
+              {community && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <Link
+                    to={`/c/${community.slug}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{
+                      background: `${community.color}22`,
+                      color: community.color,
+                      border: `1px solid ${community.color}44`,
+                    }}
+                  >
+                    c/{community.slug}
+                  </Link>
+                </>
+              )}
+              {!community && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-xs text-sky-400/90 font-medium">Status</span>
+                </>
+              )}
+            </div>
+            {isOwner && !editing && (
+              <div
+                className="flex shrink-0 items-center gap-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-500/50 bg-sky-500/15 px-2.5 py-1 text-xs font-semibold text-sky-300 hover:bg-sky-500/25"
                 >
-                  c/{community.slug}
-                </Link>
-              </>
-            )}
-            {!community && (
-              <>
-                <span className="text-slate-600">·</span>
-                <span className="text-xs text-sky-400/90 font-medium">Status</span>
-              </>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConfirmDelete(true)
+                    setEditing(false)
+                    setAiOpen(false)
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full border border-rose-500/50 bg-rose-500/15 px-2.5 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-500/25"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </button>
+              </div>
             )}
           </div>
 
@@ -405,11 +441,11 @@ export function PostCard({ post, compact = false }: PostCardProps) {
                 <button
                   type="button"
                   onClick={startEdit}
-                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition hover:bg-sky-500/10 hover:text-sky-300"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-sm font-medium text-sky-300 hover:bg-sky-500/20"
                   title="Edit post"
                 >
                   <Pencil className="h-4 w-4" />
-                  <span className="hidden sm:inline">Edit</span>
+                  Edit
                 </button>
                 <button
                   type="button"
@@ -419,11 +455,11 @@ export function PostCard({ post, compact = false }: PostCardProps) {
                     setEditing(false)
                     setAiOpen(false)
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition hover:bg-rose-500/10 hover:text-rose-400"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-sm font-medium text-rose-300 hover:bg-rose-500/20"
                   title="Delete post"
                 >
                   <Trash2 className="h-4 w-4" />
-                  <span className="hidden sm:inline">Delete</span>
+                  Delete
                 </button>
               </>
             )}
@@ -509,11 +545,14 @@ export function PostCard({ post, compact = false }: PostCardProps) {
                 </p>
               )}
 
-              {aiReply && !aiBusy && (
+              {/* Keep previous answer visible while loading a new one */}
+              {aiReply && (
                 <div
                   ref={replyRef}
                   key={askCount}
-                  className="mt-3 rounded-xl border border-violet-500/20 bg-slate-950/50 p-3 fade-in"
+                  className={`mt-3 rounded-xl border border-violet-500/20 bg-slate-950/50 p-3 fade-in ${
+                    aiBusy ? 'opacity-60' : ''
+                  }`}
                 >
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
                     Nambo’s answer
@@ -523,7 +562,7 @@ export function PostCard({ post, compact = false }: PostCardProps) {
                   </div>
                   <button
                     type="button"
-                    disabled={postingComment}
+                    disabled={postingComment || aiBusy}
                     onClick={(e) => void postAsComment(e)}
                     className="mt-3 text-xs font-medium text-sky-400 hover:underline disabled:opacity-50"
                   >
