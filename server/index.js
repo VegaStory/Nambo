@@ -834,7 +834,7 @@ app.use((err, _req, res, _next) => {
 const clientDist = path.join(__dirname, '..', 'dist')
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist, { index: false }))
-  app.get(/.*/, (req, res, next) => {
+  app.get('*', (req, res, next) => {
     if (
       req.path.startsWith('/api') ||
       req.path.startsWith('/uploads') ||
@@ -842,7 +842,6 @@ if (fs.existsSync(clientDist)) {
     ) {
       return next()
     }
-    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
     res.sendFile(path.join(clientDist, 'index.html'), (err) => {
       if (err) next(err)
     })

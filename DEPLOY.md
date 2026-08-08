@@ -68,6 +68,7 @@ https://render.com → **Get Started** (GitHub login is easiest).
 | **Build Command** | `npm install --include=dev && npm run build` |
 | **Start Command** | `npm start` |
 | **Instance type** | **Free** is fine to try |
+| **Node version** (if asked / env) | `22` or set `NODE_VERSION` = `22.14.0` |
 
 ### 4. Environment variables
 Click **Environment** and add:

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
@@ -14,9 +14,29 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
 export const UPLOADS_DIR = uploadsDir
 
-const db = new Database(path.join(dataDir, 'nambo.db'))
-db.pragma('journal_mode = WAL')
-db.pragma('foreign_keys = ON')
+// Built-in Node SQLite (no native compile / no Python) — works on Render
+const db = new DatabaseSync(path.join(dataDir, 'nambo.db'))
+db.exec('PRAGMA journal_mode = WAL')
+db.exec('PRAGMA foreign_keys = ON')
+
+/** better-sqlite3-compatible transaction helper */
+db.transaction = function transaction(fn) {
+  return (...args) => {
+    db.exec('BEGIN')
+    try {
+      const result = fn(...args)
+      db.exec('COMMIT')
+      return result
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* ignore */
+      }
+      throw err
+    }
+  }
+}
 
 export function initDb() {
   db.exec(`
