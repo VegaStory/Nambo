@@ -42,6 +42,8 @@ interface AppContextValue {
   logout: () => void
   updateProfile: (patch: Partial<Pick<User, 'displayName' | 'bio'>>) => Promise<void>
   createPost: (input: CreatePostInput) => Promise<Post | null>
+  updatePost: (postId: string, content: string) => Promise<Post | null>
+  deletePost: (postId: string) => Promise<boolean>
   toggleLikePost: (postId: string) => Promise<void>
   addComment: (postId: string, content: string, parentId?: string | null) => Promise<Comment | null>
   toggleLikeComment: (commentId: string) => Promise<void>
@@ -208,6 +210,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     })
 
+    socket.on('post:updated', (post: Post) => {
+      setData((prev) => ({
+        ...prev,
+        posts: prev.posts.map((p) => (p.id === post.id ? post : p)),
+      }))
+    })
+
+    socket.on('post:deleted', (payload: { id: string }) => {
+      if (!payload?.id) return
+      setData((prev) => ({
+        ...prev,
+        posts: prev.posts.filter((p) => p.id !== payload.id),
+        comments: prev.comments.filter((c) => c.postId !== payload.id),
+      }))
+    })
+
     socket.on('comment:new', (comment: Comment) => {
       setData((prev) => {
         if (prev.comments.some((c) => c.id === comment.id)) return prev
@@ -322,6 +340,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       throw err
     } finally {
       clearTimeout(timer)
+    }
+  }, [])
+
+  const updatePost = useCallback(async (postId: string, content: string) => {
+    try {
+      const res = await api<{ post: Post }>(`/api/posts/${postId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      })
+      if (!res?.post) return null
+      setData((prev) => ({
+        ...prev,
+        posts: prev.posts.map((p) => (p.id === postId ? res.post : p)),
+      }))
+      return res.post
+    } catch (err) {
+      console.error('updatePost failed', err)
+      return null
+    }
+  }, [])
+
+  const deletePost = useCallback(async (postId: string) => {
+    try {
+      await api(`/api/posts/${postId}`, { method: 'DELETE' })
+      setData((prev) => ({
+        ...prev,
+        posts: prev.posts.filter((p) => p.id !== postId),
+        comments: prev.comments.filter((c) => c.postId !== postId),
+      }))
+      return true
+    } catch (err) {
+      console.error('deletePost failed', err)
+      return false
     }
   }, [])
 
@@ -603,6 +654,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logout,
     updateProfile,
     createPost,
+    updatePost,
+    deletePost,
     toggleLikePost,
     addComment,
     toggleLikeComment,

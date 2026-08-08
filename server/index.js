@@ -485,6 +485,82 @@ app.post('/api/posts', auth, (req, res) => {
   })
 })
 
+// Edit own post (text + tags; keeps existing media)
+app.patch('/api/posts/:id', auth, (req, res) => {
+  try {
+    const row = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Post not found' })
+    if (row.author_id !== req.userId) {
+      return res.status(403).json({ error: 'You can only edit your own posts' })
+    }
+
+    const content = String(req.body?.content ?? '').trim()
+    if (!content && !row.media_path) {
+      return res.status(400).json({ error: 'Post cannot be empty' })
+    }
+
+    const update = db.transaction(() => {
+      db.prepare('UPDATE posts SET content = ? WHERE id = ?').run(content, row.id)
+      db.prepare('DELETE FROM post_tags WHERE post_id = ?').run(row.id)
+      const tags = extractTags(content)
+      const insertTag = db.prepare('INSERT INTO post_tags (post_id, tag) VALUES (?, ?)')
+      for (const tag of tags) insertTag.run(row.id, tag)
+    })
+    update()
+
+    const post = mapPost(db.prepare('SELECT * FROM posts WHERE id = ?').get(row.id))
+    try {
+      io.emit('post:updated', post)
+    } catch {
+      /* ignore */
+    }
+    res.json({ post })
+  } catch (err) {
+    console.error('Edit post failed', err)
+    res.status(500).json({ error: 'Could not update post' })
+  }
+})
+
+// Delete own post
+app.delete('/api/posts/:id', auth, (req, res) => {
+  try {
+    const row = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Post not found' })
+    if (row.author_id !== req.userId) {
+      return res.status(403).json({ error: 'You can only delete your own posts' })
+    }
+
+    // Remove media file if present
+    if (row.media_path) {
+      try {
+        const mediaFile = path.join(UPLOADS_DIR, row.media_path)
+        if (fs.existsSync(mediaFile)) fs.unlinkSync(mediaFile)
+      } catch (fileErr) {
+        console.error('Could not delete media file', fileErr)
+      }
+    }
+
+    // Cascades handle tags/likes/comments via FK where set; delete post last
+    db.prepare('DELETE FROM post_likes WHERE post_id = ?').run(row.id)
+    db.prepare('DELETE FROM post_tags WHERE post_id = ?').run(row.id)
+    db.prepare('DELETE FROM comment_likes WHERE comment_id IN (SELECT id FROM comments WHERE post_id = ?)').run(
+      row.id,
+    )
+    db.prepare('DELETE FROM comments WHERE post_id = ?').run(row.id)
+    db.prepare('DELETE FROM posts WHERE id = ?').run(row.id)
+
+    try {
+      io.emit('post:deleted', { id: row.id })
+    } catch {
+      /* ignore */
+    }
+    res.json({ ok: true, id: row.id })
+  } catch (err) {
+    console.error('Delete post failed', err)
+    res.status(500).json({ error: 'Could not delete post' })
+  }
+})
+
 app.post('/api/posts/:id/like', auth, (req, res) => {
   const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)
   if (!post) return res.status(404).json({ error: 'Not found' })
