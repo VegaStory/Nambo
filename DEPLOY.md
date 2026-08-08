@@ -65,7 +65,7 @@ https://render.com → **Get Started** (GitHub login is easiest).
 | **Runtime** | **Node** |
 | **Branch** | `main` |
 | **Root Directory** | leave **empty** (repo root is the app) |
-| **Build Command** | `npm install && npm run build` |
+| **Build Command** | `npm install --include=dev && npm run build` |
 | **Start Command** | `npm start` |
 | **Instance type** | **Free** is fine to try |
 
