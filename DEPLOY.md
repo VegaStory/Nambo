@@ -65,10 +65,12 @@ https://render.com → **Get Started** (GitHub login is easiest).
 | **Runtime** | **Node** |
 | **Branch** | `main` |
 | **Root Directory** | leave **empty** (repo root is the app) |
-| **Build Command** | `npm install --include=dev && npm run build` |
+| **Build Command** | `npm install --include=dev && npx vite build` |
 | **Start Command** | `npm start` |
 | **Instance type** | **Free** is fine to try |
 | **Node version** (if asked / env) | `22` or set `NODE_VERSION` = `22.14.0` |
+
+**Important:** Do **not** use `tsc` in the build command. Use `npx vite build` only.
 
 ### 4. Environment variables
 Click **Environment** and add:
