@@ -1,0 +1,17 @@
+# Optional Render Blueprint — you can also click through the dashboard (see DEPLOY.md)
+services:
+  - type: web
+    name: nambo
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      # After first deploy: add a Disk in the dashboard, mount at /var/data,
+      # then set DATA_DIR=/var/data so accounts survive restarts.
+      # - key: DATA_DIR
+      #   value: /var/data

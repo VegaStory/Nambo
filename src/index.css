@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --color-nambo-50: #f0f9ff;
+  --color-nambo-100: #e0f2fe;
+  --color-nambo-200: #bae6fd;
+  --color-nambo-300: #7dd3fc;
+  --color-nambo-400: #38bdf8;
+  --color-nambo-500: #0ea5e9;
+  --color-nambo-600: #0284c7;
+  --color-nambo-700: #0369a1;
+  --color-nambo-900: #0c4a6e;
+  --color-surface: #0b1220;
+  --color-panel: #111827;
+  --color-panel-2: #1a2332;
+  --color-border: #243044;
+  --color-muted: #94a3b8;
+  --color-ink: #e2e8f0;
+  --color-accent: #38bdf8;
+  --color-accent-2: #a78bfa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(56, 189, 248, 0.12), transparent 50%),
+    radial-gradient(900px 500px at 100% 0%, rgba(167, 139, 250, 0.10), transparent 45%),
+    var(--color-surface);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input, textarea, button, select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.glass {
+  background: rgba(17, 24, 39, 0.72);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(36, 48, 68, 0.9);
+}
+
+.fade-in {
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
