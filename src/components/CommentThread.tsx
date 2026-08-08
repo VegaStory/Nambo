@@ -48,7 +48,10 @@ function CommentItem({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
 
-  const canModerate = Boolean(currentUser)
+  // Only the comment author can edit/delete
+  const isOwner = Boolean(
+    currentUser && String(currentUser.id) === String(comment.authorId),
+  )
 
   const submit = async () => {
     if (!text.trim()) return
@@ -99,7 +102,7 @@ function CommentItem({
               <span className="text-slate-600">·</span>
               <span className="text-slate-500">{timeAgo(comment.createdAt)}</span>
             </div>
-            {canModerate && !editing && (
+            {isOwner && !editing && (
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
@@ -270,12 +273,6 @@ export function CommentThread({ postId }: CommentThreadProps) {
       <h3 className="text-sm font-semibold text-slate-200">
         Comments · {comments.length}
       </h3>
-      {currentUser && (
-        <p className="mt-1 text-xs text-slate-500">
-          Signed-in users can edit or delete any post or comment.
-        </p>
-      )}
-
       {currentUser ? (
         <div className="mt-3 flex gap-2">
           <input
@@ -298,7 +295,7 @@ export function CommentThread({ postId }: CommentThreadProps) {
           <Link to="/signin" className="text-sky-400 hover:underline">
             Sign in
           </Link>{' '}
-          to comment, edit, or delete.
+          to comment.
         </p>
       )}
 
