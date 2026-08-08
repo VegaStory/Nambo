@@ -508,14 +508,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const askNambo = useCallback(async (postId: string, question?: string) => {
     try {
-      return await api<{ reply: string; free: boolean; engine: string }>(
+      const res = await api<{ reply: string; free: boolean; engine: string }>(
         `/api/posts/${postId}/ask-nambo`,
         {
           method: 'POST',
           body: JSON.stringify({ question: question || '' }),
         },
       )
-    } catch {
+      if (!res?.reply) return null
+      return res
+    } catch (err) {
+      console.error('Ask Nambo failed', err)
       return null
     }
   }, [])

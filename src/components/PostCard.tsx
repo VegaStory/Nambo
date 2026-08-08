@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Heart, MessageCircle, Share2, Hash, Sparkles, Loader2, X, Send } from 'lucide-react'
 import type { Post } from '../types'
@@ -10,6 +10,13 @@ import { timeAgo } from '../lib/time'
 interface PostCardProps {
   post: Post
   compact?: boolean
+}
+
+/** Light cleanup so **markdown** from the helper reads cleanly in plain text. */
+function formatNamboReply(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^— \*\*Nambo\*\*.*$/m, '— Nambo · free conversation helper')
 }
 
 export function PostCard({ post, compact = false }: PostCardProps) {
@@ -34,37 +41,57 @@ export function PostCard({ post, compact = false }: PostCardProps) {
   const [aiQuestion, setAiQuestion] = useState('')
   const [aiError, setAiError] = useState('')
   const [postingComment, setPostingComment] = useState(false)
+  const [askCount, setAskCount] = useState(0)
+  const replyRef = useRef<HTMLDivElement>(null)
 
   if (!author) return null
 
-  const openAi = async (e: React.MouseEvent) => {
+  const stop = (e: MouseEvent | FormEvent | KeyboardEvent) => {
     e.stopPropagation()
+  }
+
+  const runAsk = async (question?: string) => {
+    setAiBusy(true)
+    setAiError('')
+    try {
+      const res = await askNambo(post.id, question?.trim() || '')
+      if (!res?.reply) {
+        setAiError('Nambo could not reply. Check your connection and try again.')
+        return
+      }
+      setAiReply(formatNamboReply(res.reply))
+      setAskCount((n) => n + 1)
+      // Scroll answer into view after paint
+      requestAnimationFrame(() => {
+        replyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      })
+    } catch {
+      setAiError('Something went wrong talking to Nambo. Please try again.')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const openAi = async (e: MouseEvent) => {
+    stop(e)
+    e.preventDefault()
     setAiOpen(true)
     setAiError('')
-    if (aiReply) return
-    setAiBusy(true)
-    try {
-      const res = await askNambo(post.id)
-      if (!res) setAiError('Nambo could not reply. Try again.')
-      else setAiReply(res.reply)
-    } finally {
-      setAiBusy(false)
+    // Always fetch a fresh spark when opening, or if empty
+    if (!aiReply) {
+      await runAsk()
     }
   }
 
-  const askAgain = async () => {
-    setAiBusy(true)
-    setAiError('')
-    try {
-      const res = await askNambo(post.id, aiQuestion)
-      if (!res) setAiError('Nambo could not reply. Try again.')
-      else setAiReply(res.reply)
-    } finally {
-      setAiBusy(false)
-    }
+  const onAskSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (aiBusy) return
+    await runAsk(aiQuestion)
   }
 
-  const postAsComment = async () => {
+  const postAsComment = async (e: MouseEvent) => {
+    stop(e)
     if (!currentUser) {
       navigate('/signin')
       return
@@ -84,7 +111,9 @@ export function PostCard({ post, compact = false }: PostCardProps) {
   return (
     <article
       className="glass rounded-2xl p-4 sm:p-5 hover:border-sky-500/30 transition-colors fade-in cursor-pointer"
-      onClick={() => navigate(`/post/${post.id}`)}
+      onClick={() => {
+        if (!aiOpen) navigate(`/post/${post.id}`)
+      }}
     >
       <div className="flex gap-3">
         <Link
@@ -217,53 +246,48 @@ export function PostCard({ post, compact = false }: PostCardProps) {
           {aiOpen && (
             <div
               className="mt-3 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 sm:p-4"
-              onClick={(e) => e.stopPropagation()}
+              onClick={stop}
+              onMouseDown={stop}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-violet-200">
                   <Sparkles className="h-4 w-4" />
-                  Nambo · free for everyone
+                  Ask Nambo · free AI
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAiOpen(false)}
+                  onClick={(e) => {
+                    stop(e)
+                    setAiOpen(false)
+                  }}
                   className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Built into the app — no API key, works on Render for all visitors.
+                Type a question about this post, then press Ask. Nambo will answer below.
               </p>
 
-              {aiBusy && (
-                <div className="mt-3 flex items-center gap-2 text-sm text-slate-400">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Nambo is reading the post…
-                </div>
-              )}
-
-              {aiError && <p className="mt-3 text-sm text-rose-400">{aiError}</p>}
-
-              {aiReply && !aiBusy && (
-                <div className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
-                  {aiReply}
-                </div>
-              )}
-
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <form
+                className="mt-3 flex flex-col gap-2 sm:flex-row"
+                onSubmit={(e) => void onAskSubmit(e)}
+                onClick={stop}
+              >
                 <input
                   value={aiQuestion}
                   onChange={(e) => setAiQuestion(e.target.value)}
-                  placeholder="Optional: ask Nambo something about this post…"
-                  className="flex-1 rounded-full border border-slate-600 bg-slate-900/70 px-3 py-2 text-sm outline-none focus:border-violet-500"
-                  onKeyDown={(e) => e.key === 'Enter' && void askAgain()}
+                  onClick={stop}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  placeholder="e.g. Summarize this, or why does this matter?"
+                  className="flex-1 rounded-full border border-slate-600 bg-slate-900/70 px-3 py-2.5 text-sm outline-none focus:border-violet-500"
+                  disabled={aiBusy}
                 />
                 <button
-                  type="button"
+                  type="submit"
                   disabled={aiBusy}
-                  onClick={() => void askAgain()}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-violet-500/90 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
+                  onClick={stop}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-violet-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:opacity-50"
                 >
                   {aiBusy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -272,17 +296,42 @@ export function PostCard({ post, compact = false }: PostCardProps) {
                   )}
                   Ask
                 </button>
-              </div>
+              </form>
 
-              {aiReply && (
-                <button
-                  type="button"
-                  disabled={postingComment}
-                  onClick={() => void postAsComment()}
-                  className="mt-2 text-xs font-medium text-sky-400 hover:underline disabled:opacity-50"
+              {aiBusy && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-violet-300">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Nambo is thinking…
+                </div>
+              )}
+
+              {aiError && (
+                <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+                  {aiError}
+                </p>
+              )}
+
+              {aiReply && !aiBusy && (
+                <div
+                  ref={replyRef}
+                  key={askCount}
+                  className="mt-3 rounded-xl border border-violet-500/20 bg-slate-950/50 p-3 fade-in"
                 >
-                  {postingComment ? 'Posting…' : 'Post Nambo’s spark as a comment'}
-                </button>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
+                    Nambo’s answer
+                  </div>
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
+                    {aiReply}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={postingComment}
+                    onClick={(e) => void postAsComment(e)}
+                    className="mt-3 text-xs font-medium text-sky-400 hover:underline disabled:opacity-50"
+                  >
+                    {postingComment ? 'Posting…' : 'Post this as a comment'}
+                  </button>
+                </div>
               )}
             </div>
           )}
