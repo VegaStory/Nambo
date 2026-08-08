@@ -122,20 +122,23 @@ Render **auto-deploys** from `main`. Wait a few minutes, then refresh the site.
 
 ---
 
-## Part 4 — Keep logins & posts after restarts (recommended)
+## Part 4 — Keep logins & posts after restarts (**required** for real accounts)
 
-Free Render disks may spin down; without a disk, **data can reset** on restart.
+Without a disk, **every restart wipes all users and posts**. That is why you had to make a new profile each time.
 
 1. In your Web Service → **Disks** → **Add disk**
 2. **Name:** `nambo-data`
-3. **Mount path:** `/var/data`
+3. **Mount path:** `/var/data` ← must be exactly this
 4. **Size:** 1 GB is enough to start
-5. Environment → add `DATA_DIR` = `/var/data`
-6. **Manual Deploy** → **Deploy latest commit**
+5. Environment → add:
+   - `DATA_DIR` = `/var/data`
+6. Keep a **stable** `JWT_SECRET` (do not change it every deploy)
+7. **Manual Deploy** → **Deploy latest commit**
 
-After that, accounts and uploads live on the disk and survive most deploys.
+Check: open `https://YOUR-SERVICE.onrender.com/api/health`  
+You want `"persistent": true`.
 
-> Note: Free web services **sleep** after inactivity; first load can take ~30–60 seconds. Paid plans stay awake.
+> Note: Free web services still **sleep** after inactivity (slow first load). That is separate from data loss.
 
 ---
 
